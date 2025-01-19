@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# Modified from https://github.com/winapps-org/winapps/blob/main/bin/winapps
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+readonly EC_FAIL_START=1
+readonly EC_FAIL_RESUME=2
+readonly EC_FAIL_DESTROY=3
+readonly EC_SD_TIMEOUT=4
+readonly EC_DIE_TIMEOUT=5
+readonly EC_NOT_EXIST=6
+
+readonly VM_NAME='win11'
+
+exit_with_error() {
+  local -i ERR_CODE="$1"
+  
+  case "${ERR_CODE}" in
+    "${EC_FAIL_START}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine failed to start.'
+      ;;
+    "${EC_FAIL_RESUME}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine failed to resume.'
+      ;;
+    "${EC_FAIL_DESTROY}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine failed to shut down forcefully.'
+      ;;
+    "${EC_SD_TIMEOUT}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine took too long to shut down.'
+      ;;
+    "${EC_DIE_TIMEOUT}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine took too long to die.'
+      ;;
+    "${EC_NOT_EXIST}")
+      notify-send \
+        --expire-time=8000 \
+        --urgency='low' \
+        'Windows' \
+        'The virtual machine does not exist.'
+      ;;
+  esac
+
+  # Terminate the script
+  exit "${ERR_CODE}"
+}
+
+is_vm_running() {
+  # Declare exit status variable
+  local -i EXIT_STATUS=0
+
+  # Declare timer variables
+  local -i TIME_ELAPSED=0
+  local -i TIME_LIMIT=60
+  local -i TIME_INTERVAL=5
+
+  # Attempt to start Windows VM
+  if (virsh list --all --name | xargs | grep -wq "${VM_NAME}"); then
+    if (virsh list --state-shutoff --name | xargs | grep -wq "${VM_NAME}"); then
+      notify-send \
+        --expire-time=3000 \
+        --urgency='low' \
+        'Windows' \
+        'Booting the virtual machine.'
+      virsh start "${VM_NAME}" &>/dev/null || EXIT_STATUS="${EC_FAIL_START}"
+      if (virsh list --state-paused --name \
+        | xargs \
+        | grep -wq "${VM_NAME}"); then
+        notify-send \
+          --expire-time=3000 \
+          --urgency='low' \
+          'Windows' \
+          'Resuming the virtual machine.'
+        virsh resume "${VM_NAME}" &>/dev/null || EXIT_STATUS="${EC_FAIL_RESUME}"
+      fi
+    elif (virsh list --state-paused --name \
+      | xargs \
+      | grep -wq "${VM_NAME}"); then
+      notify-send \
+        --expire-time=3000 \
+        --urgency='low' \
+        'Windows' \
+        'Resuming the virtual machine.'
+      virsh resume "${VM_NAME}" &>/dev/null || EXIT_STATUS="${EC_FAIL_RESUME}"
+    elif (virsh list --state-other --name | xargs | grep -wq "${VM_NAME}"); then
+      if (virsh domstate "${VM_NAME}" | xargs | grep -wq 'shutdown'); then
+        notify-send \
+          --expire-time=3000 \
+          --urgency='low' \
+          'Windows' \
+          'The virtual machine is currently shutting down.\n'\
+          'It will automatically restart once the shutdown process is complete.'
+        EXIT_STATUS="${EC_SD_TIMEOUT}"
+        while (( TIME_ELAPSED < TIME_LIMIT )); do
+          if (virsh list --state-shutoff --name \
+            | xargs \
+            | grep -wq "${VM_NAME}"); then
+            EXIT_STATUS=0
+            notify-send \
+              --expire-time=3000 \
+              --urgency='low' \
+              'Windows' \
+              'Booting the virtual machine.'
+            virsh start "${VM_NAME}" &>/dev/null ||
+              EXIT_STATUS="${EC_FAIL_START}"
+            break
+          fi
+          sleep "${TIME_INTERVAL}"
+          TIME_ELAPSED="$((TIME_ELAPSED + TIME_INTERVAL))"
+        done
+      elif (virsh domstate "${VM_NAME}" | xargs | grep -wq 'crashed'); then
+        notify-send \
+          --expire-time=3000 \
+          --urgency='low' \
+          'Windows' \
+          'The virtual machine experienced an unexpected crash.\n'\
+          'Attempting to restart.'
+        virsh destroy "${VM_NAME}" &>/dev/null ||
+          EXIT_STATUS="${EC_FAIL_DESTROY}"
+        if (( EXIT_STATUS == 0 )); then
+          notify-send \
+            --expire-time=3000 \
+            --urgency='low' \
+            'Windows' \
+            'Booting the virtual machine.'
+          virsh start "${VM_NAME}" &>/dev/null || EXIT_STATUS="${EC_FAIL_START}"
+        fi
+      elif (virsh domstate "${VM_NAME}" | xargs | grep -wq 'dying'); then
+        notify-send \
+          --expire-time=3000 \
+          --urgency='low' \
+          'Windows' \
+          'The virtual machine is currently shutting down unexpectedly.\n'\
+          'It will try to restart once the shutdown process finishes.'
+        EXIT_STATUS="${EC_DIE_TIMEOUT}"
+        while (( TIME_ELAPSED < TIME_LIMIT )); do
+          if (virsh domstate "${VM_NAME}" | xargs | grep -wq 'crashed'); then
+            EXIT_STATUS=0
+            notify-send \
+              --expire-time=3000 \
+              --urgency='low' \
+              'Windows' \
+              'The virtual machine experienced an unexpected crash.\n'\
+              'Attempting to restart.'
+              virsh destroy "${VM_NAME}" &>/dev/null ||
+                EXIT_STATUS="${EC_FAIL_DESTROY}"
+              if (( EXIT_STATUS == 0 )); then
+                notify-send \
+                  --expire-time=3000 \
+                  --urgency='low' \
+                  'Windows' \
+                  'Booting the virtual machine.'
+                virsh start "${VM_NAME}" &>/dev/null ||
+                  EXIT_STATUS="${EC_FAIL_START}"
+              fi
+              break
+            elif (virsh list --state-shutoff --name \
+              | xargs \
+              | grep -wq "${VM_NAME}"); then
+              EXIT_STATUS=0
+              notify-send \
+                --expire-time=3000 \
+                --urgency='low' \
+                'Windows' \
+                'Booting the virtual machine.'
+              virsh start "${VM_NAME}" &>/dev/null ||
+                EXIT_STATUS="${EC_FAIL_START}"
+              break
+            fi
+            sleep "${TIME_INTERVAL}"
+            TIME_ELAPSED="$((TIME_ELAPSED + TIME_INTERVAL))"
+          done
+        elif (virsh domstate "${VM_NAME}" \
+          | xargs \
+          | grep -wq 'pmsuspended'); then
+          virsh resume "${VM_NAME}" &>/dev/null ||
+            EXIT_STATUS="${EC_FAIL_RESUME}"
+        fi
+      fi
+    else
+      EXIT_STATUS="${EC_NOT_EXIST}"
+    fi
+
+    # Handle non-zero exit status
+    (( EXIT_STATUS != 0)) && exit_with_error "${EXIT_STATUS}"
+}
+
+is_vm_running
