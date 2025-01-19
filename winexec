@@ -11,6 +11,7 @@ readonly EC_FAIL_DESTROY=5
 readonly EC_SD_TIMEOUT=6
 readonly EC_DIE_TIMEOUT=7
 readonly EC_NOT_EXIST=8
+readonly EC_NOT_IN_GROUP=9
 
 readonly VM_NAME='win11'
 
@@ -75,6 +76,12 @@ exit_with_error() {
     "${EC_NOT_EXIST}")
       send_notification 'The virtual machine does not exist.' '8'
       err_code=69
+      ;;
+    "${EC_NOT_IN_GROUP}")
+      send_notification \
+        "The user $(id -nu) is not part of the required groups." \
+        '8'
+      err_code=77
       ;;
   esac
 
@@ -183,4 +190,19 @@ is_vm_running() {
   (( exit_status != 0)) && exit_with_error "${exit_status}"
 }
 
-is_vm_running
+is_user_group_member() {
+  # Identify groups the current user belongs to
+  local user_groups="$(groups "$(whoami)")"
+
+  if ! (grep -qE '\bkvm\b' <<< "${user_groups}") ||
+    ! (grep -qE '\blibvirt\b' <<< "${user_groups}"); then
+    exit_with_error "${EC_NOT_IN_GROUP}"
+  fi
+}
+
+main() {
+  is_user_group_member
+  is_vm_running
+}
+
+main "$@"
