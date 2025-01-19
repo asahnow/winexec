@@ -5,12 +5,12 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-readonly EC_FAIL_START=1
-readonly EC_FAIL_RESUME=2
-readonly EC_FAIL_DESTROY=3
-readonly EC_SD_TIMEOUT=4
-readonly EC_DIE_TIMEOUT=5
-readonly EC_NOT_EXIST=6
+readonly EC_FAIL_START=3
+readonly EC_FAIL_RESUME=4
+readonly EC_FAIL_DESTROY=5
+readonly EC_SD_TIMEOUT=6
+readonly EC_DIE_TIMEOUT=7
+readonly EC_NOT_EXIST=8
 
 readonly VM_NAME='win11'
 
@@ -40,23 +40,29 @@ exit_with_error() {
   case "${err_code}" in
     "${EC_FAIL_START}")
       send_notification 'The virtual machine failed to start.' '8'
+      err_code=69
       ;;
     "${EC_FAIL_RESUME}")
       send_notification 'The virtual machine failed to resume.' '8'
+      err_code=69
       ;;
     "${EC_FAIL_DESTROY}")
       send_notification \
         'The virtual machine failed to shut down forcefully.' \
         '8'
+      err_code=69
       ;;
     "${EC_SD_TIMEOUT}")
       send_notification 'The virtual machine took too long to shut down.' '8'
+      err_code=69
       ;;
     "${EC_DIE_TIMEOUT}")
       send_notification 'The virtual machine took too long to die.' '8'
+      err_code=69
       ;;
     "${EC_NOT_EXIST}")
       send_notification 'The virtual machine does not exist.' '8'
+      err_code=69
       ;;
   esac
 
