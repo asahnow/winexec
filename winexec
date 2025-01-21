@@ -219,8 +219,9 @@ is_vm_running() {
 
   if (( exit_status != 0)); then
     exit_with_error ${exit_status}
-  fi
+  else
     return 0
+  fi
 }
 
 is_port_open() {
