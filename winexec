@@ -19,6 +19,8 @@ declare -r VM_NAME='win11'
 declare -ir RDP_PORT=3389
 
 declare RDP_IP
+declare RDP_USER
+declare RDP_PASS
 declare -i FREERDP_PID=-1
 
 trap cleanup EXIT
@@ -215,8 +217,10 @@ is_vm_running() {
     exit_status="${EC_NOT_EXIST}"
   fi
 
-  # Handle non-zero exit status
-  (( exit_status != 0)) && exit_with_error "${exit_status}"
+  if (( exit_status != 0)); then
+    exit_with_error ${exit_status}
+  fi
+    return 0
 }
 
 is_port_open() {
@@ -229,7 +233,7 @@ is_port_open() {
   local -ir time_interval=5
 
   # Get virtual machine's ip address
-  if [[ -z "${RDP_IP}" ]]; then
+  if ! [[ -v RDP_IP ]]; then
     vm_mac="$(virsh domiflist "${VM_NAME}" \
       | grep -oE '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})')"
 
@@ -253,10 +257,47 @@ is_port_open() {
     || exit_with_error "$EC_BAD_PORT"
 }
 
+run_command() {
+  # Open full Windows RDP session
+  if [[ "$1" == 'windows' ]]; then
+
+    xfreerdp \
+      /v:"${RDP_IP}" \
+      /u:"${RDP_USER}" \
+      /p:"${RDP_PASS}" \
+      /cert:ignore \
+      +auto-reconnct \
+      +clipboard \
+      +dynamic-resolution \
+      -wallpaper \
+      /wm-class:'Microsoft Windows' \
+      /t:"Windows RDP Session: ${RDP_IP}" &>/dev/null &
+
+    FREERDP_PID="$!"
+
+  # Attempt to open specified Windows application
+  elif [[ -n "$1" ]]; then
+    xfreerdp \
+      /v:"${RDP_IP}" \
+      /u:"${RDP_USER}" \
+      /p:"${RDP_PASS}" \
+      /cert:ignore \
+      +auto-reconnct \
+      +clipboard \
+      +dynamic-resolution \
+      -wallpaper \
+      /wm-class:"$2" \
+      /app:program:"$2" &>/dev/null &
+    
+    FREERDP_PID="$!"
+  fi
+}
+
 main() {
   is_user_group_member
   is_vm_running
   is_port_open
+  run_command "$@"
 }
 
 main "$@"
